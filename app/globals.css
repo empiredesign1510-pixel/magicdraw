@@ -59,7 +59,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 .icon-btn { width: 38px; padding: 0; }
 .primary-btn { color: #0c120a; font-weight: 750; background: var(--accent); border-color: transparent; }
 
-.hero-copy { max-width: 1580px; margin: 44px auto 26px; display: flex; justify-content: space-between; align-items: end; gap: 40px; }
+.hero-copy { max-width: 1580px; margin: 44px auto 26px; display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; }
 .eyebrow { color: var(--accent); display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 850; letter-spacing: 1.6px; margin-bottom: 10px; }
 h1 { margin: 0; font-size: clamp(34px, 4.1vw, 66px); letter-spacing: -3.5px; line-height: .94; font-weight: 760; }
 h1 span { color: var(--muted-2); }
@@ -149,7 +149,7 @@ footer { max-width: 1580px; margin: 14px auto 0; display: flex; justify-content:
   .workspace-shell { grid-template-columns: 68px minmax(0,1fr); }
   .control-panel { grid-column: 2; display: grid; grid-template-columns: 1.2fr 1fr 1fr; column-gap: 15px; }
   .control-title { grid-column: 1/-1; }
-  .generate-btn, .security-note { align-self: end; }
+  .generate-btn, .security-note { align-self: flex-end; }
 }
 
 @media (max-width: 760px) {
