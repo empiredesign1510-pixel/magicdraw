@@ -60,3 +60,7 @@ Kanvas internal menggunakan 704×704 dan dikirim sebagai JPEG quality 0.5 agar c
 - Magic fill / inpaint
 - Object lock agar elemen yang sudah jadi tidak berubah saat stroke baru ditambahkan
 - User auth + credit / quota
+
+
+## Vercel compatibility
+This project uses Next.js 15.5.24 (Maintenance LTS security release) for Vercel deployment compatibility.
