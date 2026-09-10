@@ -1,62 +1,106 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const MODEL_ID = "fal-ai/flux-2/klein/realtime";
-const ALLOWED_ALIAS = "flux-2";
+const TOKEN_DURATION_SECONDS = 120;
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    falKeyConfigured: Boolean(process.env.FAL_KEY),
+    model: MODEL_ID,
+  });
+}
 
 export async function POST(req: NextRequest) {
   const falKey = process.env.FAL_KEY;
+
   if (!falKey) {
-    return new Response("FAL_KEY belum diatur di server.", { status: 500 });
+    return NextResponse.json(
+      { error: "FAL_KEY belum diatur di Vercel Environment Variables." },
+      { status: 500 },
+    );
   }
 
   try {
     const body = await req.json().catch(() => ({}));
-    const requestedApp = body?.app;
+    const app = typeof body?.app === "string" ? body.app : "";
 
-    // Never mint a token for an arbitrary fal app from a public endpoint.
-    if (requestedApp && requestedApp !== MODEL_ID) {
-      return new Response("Model tidak diizinkan.", { status: 403 });
+    if (!app) {
+      return NextResponse.json({ error: "Parameter app tidak ditemukan." }, { status: 400 });
     }
 
-    const response = await fetch("https://rest.alpha.fal.ai/tokens/", {
+    // Never mint a token for an arbitrary fal endpoint from this public route.
+    if (app !== MODEL_ID) {
+      return NextResponse.json(
+        { error: `Model tidak diizinkan: ${app}` },
+        { status: 403 },
+      );
+    }
+
+    // Current fal realtime token endpoint. The token must be scoped to the
+    // full normalized app path that tokenProvider receives.
+    const response = await fetch("https://rest.fal.ai/tokens/realtime", {
       method: "POST",
       headers: {
         Authorization: `Key ${falKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        allowed_apps: [ALLOWED_ALIAS],
-        token_expiration: 120,
+        allowed_apps: [app],
+        duration: TOKEN_DURATION_SECONDS,
       }),
       cache: "no-store",
     });
 
-    const raw = await response.text();
+    const data = await response.json().catch(async () => ({
+      error: await response.text().catch(() => "Unknown fal token error"),
+    }));
+
     if (!response.ok) {
-      console.error("fal token error:", raw);
-      return new Response(raw || "Gagal membuat token fal realtime.", {
-        status: response.status,
-      });
+      console.error("fal realtime token error:", data);
+      return NextResponse.json(
+        {
+          error:
+            typeof data?.detail === "string"
+              ? data.detail
+              : typeof data?.error === "string"
+                ? data.error
+                : "Gagal membuat token fal realtime.",
+        },
+        { status: response.status },
+      );
     }
 
-    let token: unknown = raw;
-    try {
-      token = JSON.parse(raw);
-      if (typeof token === "object" && token && "detail" in token) {
-        token = (token as { detail: unknown }).detail;
-      }
-    } catch {
-      // Raw token is valid too.
+    const token =
+      typeof data === "string"
+        ? data
+        : typeof data?.token === "string"
+          ? data.token
+          : null;
+
+    if (!token) {
+      console.error("fal token response has no token:", data);
+      return NextResponse.json(
+        { error: "Respons fal tidak berisi token realtime." },
+        { status: 502 },
+      );
     }
 
-    return new Response(typeof token === "string" ? token : JSON.stringify(token), {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
+    return NextResponse.json(
+      { token },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
       },
-    });
+    );
   } catch (error) {
     console.error("fal token endpoint failed:", error);
-    return new Response("Token generation failed.", { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Token generation failed." },
+      { status: 500 },
+    );
   }
 }
