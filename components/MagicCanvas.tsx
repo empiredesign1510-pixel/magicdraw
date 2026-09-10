@@ -1,6 +1,6 @@
 "use client";
 
-import { createFalClient } from "@fal-ai/client";
+import { fal } from "@fal-ai/client";
 import {
   Brush,
   Download,
@@ -21,7 +21,6 @@ import { PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 
 const MODEL_ID = "fal-ai/flux-2/klein/realtime";
 const CANVAS_SIZE = 704;
 
-const fal = createFalClient();
 
 type Point = { x: number; y: number };
 type Stroke = {
@@ -79,7 +78,9 @@ function clamp(v: number, min: number, max: number) {
 }
 
 function bytesToUrl(image: any): string | null {
-  if (!image?.content) return null;
+  if (!image) return null;
+  if (typeof image.url === "string" && image.url) return image.url;
+  if (!image.content) return null;
   const mime = image.content_type || "image/jpeg";
 
   if (typeof image.content === "string") {
@@ -123,6 +124,7 @@ export default function MagicCanvas() {
   const [hasDrawing, setHasDrawing] = useState(false);
   const [historyTick, setHistoryTick] = useState(0);
   const [frameCount, setFrameCount] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const selectedStyle = useMemo(
     () => STYLES.find((s) => s.id === styleId) ?? STYLES[0],
@@ -189,6 +191,7 @@ export default function MagicCanvas() {
     if (!canvas || !connection || !hasDrawing) return;
 
     try {
+      setErrorMessage("");
       setStatus("generating");
       setStatusText("AI is imagining…");
       connection.send({
@@ -202,6 +205,8 @@ export default function MagicCanvas() {
       });
     } catch (error) {
       console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setErrorMessage(message);
       setStatus("error");
       setStatusText("AI connection interrupted");
     }
@@ -227,23 +232,47 @@ export default function MagicCanvas() {
       connectionKey: "magicdraw-ai-v1",
       throttleInterval: 140,
       tokenProvider: async (app: string) => {
+        setStatus("connecting");
+        setStatusText("Authorizing AI…");
+
         const response = await fetch("/api/fal/realtime-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ app }),
+          cache: "no-store",
         });
-        if (!response.ok) {
-          const message = await response.text();
-          throw new Error(message || "Failed to get fal realtime token");
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || typeof data?.token !== "string") {
+          const message =
+            typeof data?.error === "string"
+              ? data.error
+              : `Fal token request failed (${response.status})`;
+          setErrorMessage(message);
+          throw new Error(message);
         }
-        return response.text();
+
+        if (mountedRef.current) {
+          setErrorMessage("");
+          setStatus("ready");
+          setStatusText("AI authorized · Draw something");
+        }
+        return data.token;
       },
-      tokenExpirationSeconds: 90,
+      tokenExpirationSeconds: 120,
       onResult: (result: any) => {
         if (!mountedRef.current) return;
-        const image = result?.images?.[result.images.length - 1];
+        const payload = result?.data ?? result;
+        const images = Array.isArray(payload?.images) ? payload.images : [];
+        const image = images[images.length - 1];
         const nextUrl = bytesToUrl(image);
-        if (!nextUrl) return;
+        if (!nextUrl) {
+          console.error("fal realtime result without an image:", result);
+          setErrorMessage("AI merespons, tetapi frame gambar tidak ditemukan.");
+          setStatus("error");
+          setStatusText("AI response invalid");
+          return;
+        }
 
         if (latestResultUrlRef.current?.startsWith("blob:")) {
           URL.revokeObjectURL(latestResultUrlRef.current);
@@ -251,20 +280,21 @@ export default function MagicCanvas() {
         latestResultUrlRef.current = nextUrl;
         setResultUrl(nextUrl);
         setFrameCount((v) => v + 1);
+        setErrorMessage("");
         setStatus("ready");
         setStatusText("Live · Ready");
       },
       onError: (error: unknown) => {
         console.error("fal realtime:", error);
         if (!mountedRef.current) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setErrorMessage(message || "Koneksi realtime fal gagal.");
         setStatus("error");
-        setStatusText("AI offline · check FAL_KEY");
+        setStatusText("AI offline · check connection");
       },
     });
 
     connectionRef.current = connection;
-    setStatus("ready");
-    setStatusText("Live · Draw something");
 
     return () => {
       mountedRef.current = false;
@@ -496,8 +526,12 @@ export default function MagicCanvas() {
               ) : (
                 <div className="result-empty">
                   <div className="orb"><Sparkles size={28}/></div>
-                  <strong>Waiting for your first stroke</strong>
-                  <span>Hasil AI akan muncul di sini dan ikut berubah saat sketsa berkembang.</span>
+                  <strong>{status === "error" ? "AI belum terhubung" : "Waiting for your first stroke"}</strong>
+                  <span>
+                    {status === "error"
+                      ? errorMessage || "Periksa FAL_KEY dan koneksi fal realtime."
+                      : "Hasil AI akan muncul di sini dan ikut berubah saat sketsa berkembang."}
+                  </span>
                 </div>
               )}
               {status === "generating" && <div className="generating-badge"><span className="status-dot pulse"/> imagining</div>}
